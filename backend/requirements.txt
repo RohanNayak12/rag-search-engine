@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+pydantic
+python-dotenv
+pydantic-settings
+pypdf
+nltk
+tiktoken
+tqdm
+numpy
+sentence-transformers
+faiss-cpu
+openai
+google-genai
+python-multipart

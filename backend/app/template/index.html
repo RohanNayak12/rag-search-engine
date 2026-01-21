@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>RAG Search Engine</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+
+<div class="container">
+    <h1>📄 RAG Search Engine</h1>
+
+    <!-- =========================
+         Upload Section
+    ========================== -->
+    <section class="card">
+        <h2>Upload Documents</h2>
+
+        <form id="upload-form">
+            <input type="file" id="pdf-file" accept=".pdf" />
+            <button type="submit">Upload PDF</button>
+        </form>
+
+        <p id="upload-status"></p>
+
+        <!-- Explicit indexing control -->
+        <button id="index-btn" onclick="indexNewDocs()">
+            ➕ Index New Documents
+        </button>
+    </section>
+
+    <!-- =========================
+         Chat Section
+    ========================== -->
+    <section class="card">
+        <h2>Ask a Question</h2>
+
+        <div class="chat-box" id="chat-box"></div>
+
+        <form id="chat-form">
+            <input
+                type="text"
+                id="question-input"
+                placeholder="Ask a question about the indexed documents..."
+                required
+            />
+            <button type="submit">Ask</button>
+        </form>
+    </section>
+</div>
+
+<script>
+/* =========================
+   Upload Handler
+========================= */
+const uploadForm = document.getElementById("upload-form");
+const uploadStatus = document.getElementById("upload-status");
+
+uploadForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const fileInput = document.getElementById("pdf-file");
+
+    if (!fileInput.files.length) {
+        uploadStatus.textContent = "❌ Please select a PDF file.";
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", fileInput.files[0]);
+
+    uploadStatus.textContent = "⏳ Uploading...";
+
+    try {
+        const response = await fetch("/upload", {
+            method: "POST",
+            body: formData
+        });
+
+        if (!response.ok) {
+            throw new Error("Upload failed");
+        }
+
+        const data = await response.json();
+        uploadStatus.textContent =
+            `✅ Uploaded: ${data.filename} (click 'Index New Documents')`;
+
+        fileInput.value = "";
+
+    } catch (err) {
+        uploadStatus.textContent = "❌ Upload failed.";
+        console.error(err);
+    }
+});
+
+/* =========================
+   Incremental Indexing
+========================= */
+async function indexNewDocs() {
+    try {
+        uploadStatus.textContent = "🔄 Indexing new documents...";
+
+        const response = await fetch("/index-new", {
+            method: "POST"
+        });
+
+        if (!response.ok) {
+            throw new Error("Indexing failed");
+        }
+
+        const data = await response.json();
+        uploadStatus.textContent = `✅ ${data.status}`;
+
+    } catch (err) {
+        uploadStatus.textContent = "❌ Indexing failed.";
+        console.error(err);
+    }
+}
+
+/* =========================
+   Chat / Ask Handler
+========================= */
+const chatForm = document.getElementById("chat-form");
+const chatBox = document.getElementById("chat-box");
+const input = document.getElementById("question-input");
+
+function addMessage(text, sender) {
+    const msg = document.createElement("div");
+    msg.className = `message ${sender}`;
+    msg.textContent = text;
+    chatBox.appendChild(msg);
+    chatBox.scrollTop = chatBox.scrollHeight;
+    return msg;
+}
+
+chatForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const question = input.value.trim();
+    if (!question) return;
+
+    addMessage(question, "user");
+    input.value = "";
+
+    const botMsg = addMessage("🤖 Thinking...", "bot");
+
+    try {
+        const response = await fetch("/ask", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                question: question,
+                top_k: 5
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error("Server error");
+        }
+
+        const data = await response.json();
+        botMsg.textContent = data.answer;
+
+    } catch (err) {
+        botMsg.textContent =
+            "❌ Error getting answer. Please try again.";
+        console.error(err);
+    }
+});
+</script>
+
+</body>
+</html>
