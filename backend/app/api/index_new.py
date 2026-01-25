@@ -12,7 +12,6 @@ def index_new():
     msg = index_new_pdfs(
         raw_pdf_dir=PROJECT_ROOT / "data" / "raw_pdfs",
         index_path=PROJECT_ROOT / "data" / "faiss" / "index.faiss",
-        vectors_path=PROJECT_ROOT / "data" / "embeddings" / "vectors.npy",
         metadata_path=PROJECT_ROOT / "data" / "embeddings" / "metadata.jsonl",
         indexed_files_path=PROJECT_ROOT / "data" / "indexed_files.json",
     )
