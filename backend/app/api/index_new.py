@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from pathlib import Path
 
+from backend.app.api.ask import retriever
 from backend.app.services.incremental_indexing import index_new_pdfs
 
 router = APIRouter()
@@ -15,4 +16,5 @@ def index_new():
         metadata_path=PROJECT_ROOT / "data" / "embeddings" / "metadata.jsonl",
         indexed_files_path=PROJECT_ROOT / "data" / "indexed_files.json",
     )
+    retriever.reload()
     return {"status": msg}

@@ -2,12 +2,14 @@ import json
 from pathlib import Path
 
 import faiss
+import numpy as np
 from sentence_transformers import SentenceTransformer
 
 
 class Retrievar:
     def __init__(self,idx_path:Path,metadata_path:Path,chunks_path: Path):
-
+        self.idx_path = idx_path
+        self.metadata_path = metadata_path
         self.model=SentenceTransformer("all-MiniLM-L6-v2")
 
         if not idx_path.exists() or not metadata_path.exists():
@@ -31,31 +33,97 @@ class Retrievar:
             f"!= metadata records ({len(self.metadata)})"
         )
 
+    def reload(self):
+        print("Reloading retriever...")
+        self.idx=faiss.read_index(str(self.idx_path))
+        self.metadata=[]
 
-    def search(self,query:str,top_k:int=5):
+        with self.metadata_path.open(mode="r",encoding="utf-8") as f:
+            for line in f:
+                self.metadata.append(json.loads(line))
+
+        assert self.idx.ntotal == len(self.metadata), (
+            f"FAISS index ({self.idx.ntotal}) "
+            f"!= metadata records ({len(self.metadata)})"
+        )
+        print(f"✅ Loaded {self.idx.ntotal} vectors")
+
+    def cosine_sim(self,a:np.ndarray,b:np.ndarray)->float:
+        return float(np.dot(a,b))
+
+
+
+    def search(self,query:str,top_k:int=5,use_mmr:bool=True):
 
         if self.idx is None or not self.metadata:
             return []
 
         query_vec=self.model.encode(
-            [query],
+            query,
             convert_to_numpy=True,
             normalize_embeddings=True
         )
-        scores,indices=self.idx.search(query_vec,top_k)
+        candidate_k=max(top_k*4,10)
+
+        scores,indices=self.idx.search(
+            query_vec.reshape(1,-1) ,
+            candidate_k
+        )
+
+        valid_indices=[i for i in indices[0] if i>=0]
+        candidate_embeddings=np.array(
+            [self.metadata[i]["embedding"] for i in valid_indices ],
+            dtype="float32"
+        )
+
+        if use_mmr:
+            selected=mmr(
+                query_vec,
+                candidate_embeddings,
+                lambda_param=0.7,
+                top_k=top_k
+            )
+            final_indices=[valid_indices[i] for i in selected]
+        else:
+            final_indices=valid_indices[:top_k]
         res=[]
-        for score,i in zip(scores[0],indices[0]):
-            if i<0:
-                continue
-            meta=self.metadata[i]
+        for i in final_indices:
+            rec=self.metadata[i]
             res.append({
-                "score":float(score),
-                "text": meta["text"],
-                "doc_id":meta["doc_id"],
-                "page":meta["page"],
-                "chunk_id":meta["chunk_id"]
+                "text":rec["text"],
+                "doc_id":rec["doc_id"],
+                "page":rec["page"],
+                "chunk_id":rec["chunk_id"]
             })
-        print("Top indices:", indices)
-        print("Top scores:", scores)
 
         return res
+
+
+def mmr(
+        query_embeddings: np.ndarray,
+        doc_embeddings: np.ndarray,
+        lambda_param: float = 0.7,
+        top_k: int = 5
+):
+    selected=[]
+    candidates=list(range(len(doc_embeddings)))
+    relevance_scores=doc_embeddings @ query_embeddings
+    first=int(np.argmax(relevance_scores))
+    selected.append(first)
+    candidates.remove(first)
+
+    while len(selected)<top_k and candidates:
+        mmr_scores=[]
+        for c in candidates:
+            relevance=relevance_scores[c]
+            diversity=max(
+                doc_embeddings[c] @ doc_embeddings[s]
+                for s in selected
+            )
+            mmr_score=lambda_param*relevance-(1-lambda_param)*diversity
+            mmr_scores.append((mmr_score,c))
+        _,best=max(mmr_scores,key=lambda x:x[0])
+        selected.append(best)
+        candidates.remove(best)
+
+    return selected
