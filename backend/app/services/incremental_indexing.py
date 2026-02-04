@@ -44,7 +44,6 @@ def index_new_pdfs(
     new_vectors = embedder.embed_text(new_chunks).astype("float32")
     faiss.normalize_L2(new_vectors)
 
-    # 🔹 Load or create index
     if index_path.exists():
         index = faiss.read_index(str(index_path))
         if index.d != new_vectors.shape[1]:
