@@ -46,12 +46,10 @@ class Retrievar:
             f"FAISS index ({self.idx.ntotal}) "
             f"!= metadata records ({len(self.metadata)})"
         )
-        print(f"✅ Loaded {self.idx.ntotal} vectors")
-
-    def cosine_sim(self, a: np.ndarray, b: np.ndarray) -> float:
-        return float(np.dot(a, b))
+        print(f"Loaded {self.idx.ntotal} vectors")
 
     def search(self, query: str, top_k: int = 5, use_mmr: bool = True):
+
         if self.idx is None or not self.metadata:
             return []
 
@@ -62,7 +60,6 @@ class Retrievar:
         )
 
         if use_mmr:
-            # Get more candidates for MMR reranking
             candidate_k = max(top_k * 4, 20)
         else:
             candidate_k = top_k
@@ -72,17 +69,22 @@ class Retrievar:
             candidate_k
         )
 
-        valid_indices = [i for i in indices[0] if i >= 0]
+        valid_indices = [i for i in indices[0] if i >= 0 and i < len(self.metadata)]
 
         if not valid_indices:
             return []
 
         if use_mmr:
-            # Extract embeddings from FAISS index (not from metadata!)
-            candidate_embeddings = np.zeros((len(valid_indices), self.idx.d), dtype=np.float32)
-            for idx, faiss_idx in enumerate(valid_indices):
-                candidate_embeddings[idx] = self.idx.reconstruct(int(faiss_idx))
+            # Extract embeddings from METADATA (not FAISS!)
+            candidate_embeddings = np.array(
+                [self.metadata[i]["embedding"] for i in valid_indices],
+                dtype=np.float32
+            )
 
+            # Normalize for cosine similarity
+            faiss.normalize_L2(candidate_embeddings)
+
+            # Apply MMR reranking
             selected = mmr(
                 query_vec,
                 candidate_embeddings,
@@ -93,6 +95,7 @@ class Retrievar:
         else:
             final_indices = valid_indices[:top_k]
 
+        # Build results (no embedding in output)
         res = []
         for i in final_indices:
             rec = self.metadata[i]
@@ -112,26 +115,30 @@ def mmr(
         lambda_param: float = 0.7,
         top_k: int = 5
 ):
-
     selected = []
     candidates = list(range(len(doc_embeddings)))
 
+    # Compute relevance scores (cosine similarity)
     relevance_scores = doc_embeddings @ query_embedding
 
+    # Select most relevant first
     first = int(np.argmax(relevance_scores))
     selected.append(first)
     candidates.remove(first)
 
+    # Iteratively select balancing relevance and diversity
     while len(selected) < top_k and candidates:
         mmr_scores = []
         for c in candidates:
             relevance = relevance_scores[c]
 
+            # Max similarity to already selected
             diversity = max(
                 doc_embeddings[c] @ doc_embeddings[s]
                 for s in selected
             )
 
+            # MMR: high relevance, low redundancy
             mmr_score = lambda_param * relevance - (1 - lambda_param) * diversity
             mmr_scores.append((mmr_score, c))
 
