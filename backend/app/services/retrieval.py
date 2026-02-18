@@ -13,7 +13,7 @@ class Retrievar:
         self.model = SentenceTransformer("all-MiniLM-L6-v2")
 
         if not idx_path.exists() or not metadata_path.exists():
-            print("⚠️ No FAISS index found yet. Retriever disabled.")
+            print("No FAISS index found yet. Retriever disabled.")
             self.idx = None
             self.metadata = []
             return
