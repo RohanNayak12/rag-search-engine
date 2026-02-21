@@ -4,6 +4,7 @@ from pathlib import Path
 import faiss
 import numpy as np
 from sentence_transformers import SentenceTransformer
+from sentence_transformers import CrossEncoder
 
 
 class Retrievar:
@@ -11,6 +12,7 @@ class Retrievar:
         self.idx_path = idx_path
         self.metadata_path = metadata_path
         self.model = SentenceTransformer("all-MiniLM-L6-v2")
+        self.reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
         if not idx_path.exists() or not metadata_path.exists():
             print("No FAISS index found yet. Retriever disabled.")
@@ -48,7 +50,7 @@ class Retrievar:
         )
         print(f"Loaded {self.idx.ntotal} vectors")
 
-    def search(self, query: str, top_k: int = 5, use_mmr: bool = True):
+    def search(self, query: str, top_k: int = 5, use_mmr: bool = True,use_ce:bool=True,ce_top_n:int=30):
 
         if self.idx is None or not self.metadata:
             return []
@@ -91,9 +93,18 @@ class Retrievar:
                 lambda_param=0.7,
                 top_k=top_k
             )
-            final_indices = [valid_indices[i] for i in selected]
+            ordered = [valid_indices[i] for i in selected]
         else:
-            final_indices = valid_indices[:top_k]
+            ordered = valid_indices[:top_k]
+
+        if use_ce:
+            shortlist=ordered[: min(ce_top_n,len(ordered))]
+            pairs=[(query,self.metadata[i]["text"]) for i in shortlist]
+            ce_scores=self.reranker.predict(pairs)
+            shortlist=[doc_id for _,doc_id in sorted(zip(ce_scores,shortlist),key=lambda x:x[0],reverse=True)]
+            final_indices=shortlist[:top_k]
+        else:
+            final_indices=ordered[:top_k]
 
         # Build results (no embedding in output)
         res = []
